@@ -1,75 +1,54 @@
 # FocusScope unmount `setTimeout` fires after Vitest tears down jsdom
 
-Reproduction for the `@radix-ui/react-focus-scope` bug where the effect cleanup's zero-delay
-`setTimeout` is never cleared and reads `CustomEvent` / `document` from the global scope when
-it fires. If it fires after Vitest has torn down the jsdom environment, those globals are Node's
-again, jsdom's `dispatchEvent` rejects Node's `CustomEvent`, and Vitest reports an unhandled
-error and exits 1 even though every test passed.
+`@radix-ui/react-focus-scope`'s effect cleanup schedules a zero-delay `setTimeout` that is never
+cleared and reads `CustomEvent` / `document` from the global scope when it fires. If that is
+after Vitest has torn down jsdom, the globals are Node's again, jsdom's `dispatchEvent` rejects
+Node's `CustomEvent`, and Vitest reports an unhandled error and exits 1 with every test passing.
 
-The offending code is `node_modules/@radix-ui/react-focus-scope/dist/index.mjs` lines 94-103
-(1.1.16, identical in 1.1.7 and `main`).
-
-## Setup
+The code is `dist/index.mjs` lines 94-103 of 1.1.16 (same in 1.1.7 and `main`). Versions of
+everything else are pinned in `package.json`.
 
 ```sh
-npm install   # or: npx npm@12 install   (see "Notes" if npm 10 fails with `edgesOut`)
+npm install   # npm 10.9 fails with `edgesOut`; `npx npm@12 install` works
 ```
-
-| Software | Version |
-| --- | --- |
-| @radix-ui/react-focus-scope | 1.1.16 |
-| @radix-ui/react-dialog / react-popover / react-dropdown-menu | 1.1.23 / 1.1.23 / 2.1.24 |
-| React | 19.2.8 |
-| Vitest | 4.1.6 |
-| jsdom | 24.1.3 |
-| @testing-library/react | 16.3.2 |
-| Node | 22 |
 
 ## What's in here
 
-- `test/*.test.tsx`: four files, each with a single test that leaves a `Dialog`, `Popover`,
-  `DropdownMenu`, or bare `FocusScope` mounted. `cleanup()` in `afterEach` (`test/setup.ts`)
-  unmounts it, FocusScope schedules its unmount timer, and nothing else runs before teardown.
-- `test/setup.ts`: RTL `cleanup()` in `afterEach`, plus the race forcer and the workaround
-  described below, each behind an env var.
-- `jsdom-mechanism.cjs`: the underlying failure with no React or Vitest involved.
-- `patches/@radix-ui+react-focus-scope+1.1.16.patch`: the issue's suggested fix as a unified
-  diff against the published 1.1.16 `dist/index.mjs`.
-- `scripts/make-fixed.mjs`: runs on `postinstall` (and before `npm run test:fixed`). Copies the
-  installed dist to `fixed/focus-scope.mjs` (gitignored) with the patch applied. It exits 1 if
-  the installed version has no patch or a hunk no longer matches exactly, so a dependency bump
-  cannot silently drift from the fix under test. `REPRO_USE_FIX=1` aliases the package to the
-  generated file (see `vitest.config.mts`), which keeps the buggy and fixed builds runnable from
-  one install.
+- `test/*.test.tsx`: one test per file, each leaving a `Dialog`, `Popover`, `DropdownMenu`, or
+  bare `FocusScope` mounted so `cleanup()` in `afterEach` schedules the unmount timer right
+  before teardown.
+- `test/setup.ts`: that `cleanup()`, the race forcer, and the issue's workaround, behind env vars.
+- `jsdom-mechanism.cjs`: the `dispatchEvent` rejection in plain jsdom.
+- `patches/*.patch`: the issue's suggested fix as a diff against the published dist.
+  `scripts/make-fixed.mjs` applies it to the installed package on `postinstall`, writing the
+  gitignored `fixed/focus-scope.mjs`, and fails if the version or hunks no longer match.
+  `REPRO_USE_FIX=1` aliases the package to that file.
 
 ## Forcing the race
 
-Left alone the timer almost always fires before teardown, because the main process has to send
-the worker a `stop` message first. To make it lose deterministically, `test/setup.ts` wraps
-`setTimeout` and holds zero-delay timers created from react-focus-scope until jsdom's globals are
-gone (re-armed every 1 ms, capped at 2 s), then runs the original callback untouched. Nothing
-else changes: same callback, same globals-at-fire-time behaviour as the real bug.
-
-`REPRO_RACE_DELAY_MS=5` uses a fixed 5 ms delay instead, like the issue's setup file. On this
-machine that lost the race in 24 of 30 single-file runs; the hold-until-teardown default lost it
-in 15 of 15.
+Left alone the timer nearly always fires before teardown, because the main process has to send
+the worker a `stop` message first. So `test/setup.ts` wraps `setTimeout` and holds the timer
+whose direct caller is the focus-scope cleanup until jsdom's globals are gone (re-armed every
+1 ms, capped at 2 s), then runs the original callback untouched. `REPRO_RACE_DELAY_MS=5` uses a
+fixed delay instead, like the issue's setup file; on this machine that lost the race in 24 of 30
+single-file runs versus 20 of 20 for the default.
 
 ## Commands
 
-| Command | What it shows |
+| Command | Result |
 | --- | --- |
-| `npm run jsdom-mechanism` | Plain jsdom: Node's `CustomEvent` is rejected by an element from a closed jsdom window, jsdom's own is fine. |
-| `npm run test:log` | The bug. Timer outcomes are logged to stderr; the Dialog file's timer throws after teardown on every run. |
-| `npm test` | Same without the logging. |
-| `npm run test:fixed` | Patched focus-scope. Timers still fire after teardown and complete normally, exit 0. |
-| `npm run test:workaround` | The issue's `afterAll` workaround with the real 0 ms timer: timers run before teardown, exit 0. |
-| `npm run test:no-race` | Unforced run for comparison: timers fire before teardown, exit 0. |
+| `npm run jsdom-mechanism` | Node's `CustomEvent` is rejected by an element from a closed jsdom window; jsdom's own is fine. |
+| `npm run test:log` | The bug, with each unmount timer's outcome logged to stderr. |
+| `npm test` | Same, without the log. |
+| `npm run test:fixed` | Patched build: the timer still fires after teardown and completes. Exit 0. |
+| `npm run test:workaround` | The issue's `afterAll` macrotask wait, timer unforced. Exit 0. |
+| `npm run test:no-race` | Unforced, for comparison. Exit 0. |
 
-Set `REPRO_LOG_TIMER=1` on any of them to log each unmount timer's outcome.
+`REPRO_LOG_TIMER=1` adds the log to any of them.
 
 ## Observed output
 
-`npm run test:log` (unpatched, one of the runs that exits 1):
+`npm run test:log`, one of the runs that exits 1:
 
 ```
  RUN  v4.1.6 /home/user/radix-ui-bugs/focus-scope-unmount-timer
@@ -95,15 +74,12 @@ This error originated in "test/dialog-left-open.test.tsx" test file. It doesn't 
  Test Files  4 passed (4)
       Tests  4 passed (4)
      Errors  1 error
-   Start at  03:36:56
-   Duration  1.21s (transform 127ms, setup 395ms, import 224ms, tests 336ms, environment 1.29s)
 ```
 
-(The `run` / `Timeout.poll` frames are the race forcer in `test/setup.ts` calling the original
-callback; with `REPRO_RACE_DELAY_MS=5` the stack is `Timeout._onTimeout` in `index.mjs` as in
-the issue.)
+The `run` / `Timeout.poll` frames are the race forcer; with `REPRO_RACE_DELAY_MS=5` the stack is
+`Timeout._onTimeout` in `index.mjs` as in the issue.
 
-`npm run test:fixed` with `REPRO_LOG_TIMER=1` (regenerates `fixed/focus-scope.mjs` first):
+`npm run test:fixed` with the log:
 
 ```
 [repro] focus-scope unmount timer fired: ok | scheduled@555 fired@562 | node globals (jsdom torn down)
@@ -112,45 +88,24 @@ the issue.)
       Tests  4 passed (4)
 ```
 
-The timer still fires after teardown but completes, because it uses the captured `CustomEvent`
-constructor and the container's `ownerDocument`. The tests themselves pass unchanged in every
-mode, including the bare `FocusScope` one that takes the focus hand-back path (the case the
-issue notes needs the `document` / `isSelectableInput` edits, not just the `CustomEvent` one).
+The bare `FocusScope` file takes the focus hand-back path, which is why the fix needs the
+`document` / `isSelectableInput` edits and not just the captured `CustomEvent`.
 
-Counts on this machine (4 CPUs, otherwise idle):
+## Why the exit code is intermittent
 
-| Run | Unmount timer threw after teardown | Vitest exit 1 |
-| --- | --- | --- |
-| `npm run test:log`, all 4 files, 16 runs | every run (1-3 timers per run) | 10 of 16 |
-| Dialog file alone, hold-until-teardown, 20 runs | 20 of 20 | 0 of 20 |
-| Dialog file alone, `REPRO_RACE_DELAY_MS=5`, 30 runs | 24 of 30 | 0 of 30 |
+The throw is deterministic once the timer fires after teardown; whether Vitest counts it depends
+on IPC timing in the 4.1.6 forks pool. The worker tears down jsdom on `stop`, sends `stopped`,
+and its uncaught-exception listener then forwards the timer's error over the same channel. Main
+removes that worker's listeners when it handles `stopped`. If the error arrives in the same IPC
+read, both `message` events are emitted before the removal (nextTick drains before promise
+microtasks) and the run exits 1; in a later read it is dropped and the run exits 0.
 
-## Why the exit code is intermittent even when the timer throws
-
-The throw itself is deterministic once the timer fires after teardown. Whether Vitest turns it
-into exit 1 depends on IPC timing in Vitest 4.1.6's forks pool:
-
-1. Main sends the worker `stop`. The worker tears down jsdom synchronously (globals restored to
-   Node's), then sends `stopped`.
-2. The worker's uncaught-exception listener is still attached when the timer fires, so it
-   forwards the error to main over the same IPC channel.
-3. Main handles `stopped` by removing its message listeners for that worker. If the error
-   message arrives in the same IPC read as `stopped`, Node emits both `message` events before the
-   listener removal runs (nextTick queue drains before promise microtasks) and the error is
-   recorded, exit 1. If it arrives in a later read, it is dropped, exit 0.
-
-That is why a single file alone never exits 1 here (main is idle and reads `stopped` right away)
-while the four-file run does in more than half the runs (main is busy with the other workers).
-Logging the timer's outcome with `REPRO_LOG_TIMER=1` shows the throw regardless of which way
-that race goes.
+On this 4-CPU machine, the four-file run exited 1 in 10 of 16 runs and a single file alone in 0
+of 50, main being idle enough to read `stopped` on its own.
 
 ## Notes
 
-- `overrides.nwsapi = 2.2.16` is unrelated to the bug. nwsapi 2.2.27 makes `Element.matches(':modal')`
-  recurse for seconds under jsdom 24, and floating-ui calls it from `isTopLayer`, which stalled
-  the Popover and DropdownMenu tests for ~11 s each and masked the race.
-- npm 10.9 fails this install with `Cannot read properties of null (reading 'edgesOut')`;
-  `npx npm@12 install` works.
-- If you install with `--ignore-scripts`, run `npm run make-fixed` once before `test:fixed`
-  (the script does this itself anyway).
+- `overrides.nwsapi = 2.2.16` is unrelated to the bug: 2.2.27 makes `matches(':modal')`, which
+  floating-ui calls, recurse for ~11 s under jsdom 24, masking the race in the Popover and
+  DropdownMenu files.
 - jsdom 24 has no `PointerEvent`, so the DropdownMenu test opens the menu with the keyboard.
