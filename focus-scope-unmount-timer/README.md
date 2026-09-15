@@ -43,7 +43,7 @@ single-file runs versus 20 of 20 for the default.
 
 | Command | Result |
 | --- | --- |
-| `npm run jsdom-mechanism` | Node's `CustomEvent` is rejected by an element from a closed jsdom window; jsdom's own is fine. |
+| `npm run jsdom-mechanism` | Node's `CustomEvent` is rejected by an element from a closed jsdom window. jsdom's own is fine. |
 | `npm run test:log` | The bug, with each unmount timer's outcome logged to stderr. |
 | `npm test` | Same, without the log. |
 | `npm run test:fixed` | Patched build: the timer still fires after teardown and completes. Exit 0. |
