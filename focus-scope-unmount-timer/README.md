@@ -13,7 +13,7 @@ npm run test:log          # every test passes, "Errors 1 error", exit 1
 npm run test:fixed        # same tests with the issue's fix applied, exit 0
 ```
 
-`test:log` prints each unmount timer's outcome to stderr; the throw after teardown shows up on
+`test:log` prints each unmount timer's outcome to stderr. The throw after teardown shows up on
 every run, and the exit 1 on about half of them (see "Why the exit code is intermittent").
 
 The code is `dist/index.mjs` lines 94-103 of 1.1.16 (same in 1.1.7 and `main`).
@@ -36,7 +36,7 @@ Left alone the timer nearly always fires before teardown, because the main proce
 the worker a `stop` message first. So `test/setup.ts` wraps `setTimeout` and holds the timer
 whose direct caller is the focus-scope cleanup until jsdom's globals are gone (re-armed every
 1 ms, capped at 2 s), then runs the original callback untouched. `REPRO_RACE_DELAY_MS=5` uses a
-fixed delay instead, like the issue's setup file; on this machine that lost the race in 24 of 30
+fixed delay instead, like the issue's setup file. On this machine that lost the race in 24 of 30
 single-file runs versus 20 of 20 for the default.
 
 ## Commands
@@ -82,7 +82,7 @@ This error originated in "test/dialog-left-open.test.tsx" test file. It doesn't 
      Errors  1 error
 ```
 
-The `run` / `Timeout.poll` frames are the race forcer; with `REPRO_RACE_DELAY_MS=5` the stack is
+The `run` / `Timeout.poll` frames are the race forcer. With `REPRO_RACE_DELAY_MS=5` the stack is
 `Timeout._onTimeout` in `index.mjs` as in the issue.
 
 `npm run test:fixed` with the log:
@@ -99,19 +99,19 @@ The bare `FocusScope` file takes the focus hand-back path, which is why the fix 
 
 ## Why the exit code is intermittent
 
-The throw is deterministic once the timer fires after teardown; whether Vitest counts it depends
+The throw is deterministic once the timer fires after teardown. Whether Vitest counts it depends
 on IPC timing in the 4.1.6 forks pool. The worker tears down jsdom on `stop`, sends `stopped`,
 and its uncaught-exception listener then forwards the timer's error over the same channel. Main
 removes that worker's listeners when it handles `stopped`. If the error arrives in the same IPC
 read, both `message` events are emitted before the removal (nextTick drains before promise
-microtasks) and the run exits 1; in a later read it is dropped and the run exits 0.
+microtasks) and the run exits 1. In a later read it is dropped and the run exits 0.
 
 On this 4-CPU machine, the four-file run exited 1 in 10 of 16 runs and a single file alone in 0
 of 50, main being idle enough to read `stopped` on its own.
 
 ## Notes
 
-- `overrides.nwsapi = 2.2.16` is unrelated to the bug: 2.2.27 makes `matches(':modal')`, which
+- `overrides.nwsapi = 2.2.16` is unrelated to the bug. 2.2.27 makes `matches(':modal')`, which
   floating-ui calls, recurse for ~11 s under jsdom 24, masking the race in the Popover and
   DropdownMenu files.
 - jsdom 24 has no `PointerEvent`, so the DropdownMenu test opens the menu with the keyboard.
