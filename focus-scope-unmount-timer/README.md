@@ -5,12 +5,18 @@ cleared and reads `CustomEvent` / `document` from the global scope when it fires
 after Vitest has torn down jsdom, the globals are Node's again, jsdom's `dispatchEvent` rejects
 Node's `CustomEvent`, and Vitest reports an unhandled error and exits 1 with every test passing.
 
-The code is `dist/index.mjs` lines 94-103 of 1.1.16 (same in 1.1.7 and `main`). Versions of
-everything else are pinned in `package.json`.
+To see it:
 
 ```sh
-npm install   # npm 10.9 fails with `edgesOut`; `npx npm@12 install` works
+npx npm@12 install        # npm 10.9 fails with `edgesOut`
+npm run test:log          # every test passes, "Errors 1 error", exit 1
+npm run test:fixed        # same tests with the issue's fix applied, exit 0
 ```
+
+`test:log` prints each unmount timer's outcome to stderr; the throw after teardown shows up on
+every run, and the exit 1 on about half of them (see "Why the exit code is intermittent").
+
+The code is `dist/index.mjs` lines 94-103 of 1.1.16 (same in 1.1.7 and `main`).
 
 ## What's in here
 
