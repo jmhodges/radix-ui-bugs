@@ -33,8 +33,14 @@ npm install   # or: npx npm@12 install   (see "Notes" if npm 10 fails with `edge
 - `test/setup.ts`: RTL `cleanup()` in `afterEach`, plus the race forcer and the workaround
   described below, each behind an env var.
 - `jsdom-mechanism.cjs`: the underlying failure with no React or Vitest involved.
-- `fixed/focus-scope.mjs`: the published 1.1.16 dist with the issue's suggested fix applied
-  (four `[fix]` comments mark the only changes). `REPRO_USE_FIX=1` aliases the package to it.
+- `patches/@radix-ui+react-focus-scope+1.1.16.patch`: the issue's suggested fix as a unified
+  diff against the published 1.1.16 `dist/index.mjs`.
+- `scripts/make-fixed.mjs`: runs on `postinstall` (and before `npm run test:fixed`). Copies the
+  installed dist to `fixed/focus-scope.mjs` (gitignored) with the patch applied. It exits 1 if
+  the installed version has no patch or a hunk no longer matches exactly, so a dependency bump
+  cannot silently drift from the fix under test. `REPRO_USE_FIX=1` aliases the package to the
+  generated file (see `vitest.config.mts`), which keeps the buggy and fixed builds runnable from
+  one install.
 
 ## Forcing the race
 
@@ -97,7 +103,7 @@ This error originated in "test/dialog-left-open.test.tsx" test file. It doesn't 
 callback; with `REPRO_RACE_DELAY_MS=5` the stack is `Timeout._onTimeout` in `index.mjs` as in
 the issue.)
 
-`npm run test:fixed` with `REPRO_LOG_TIMER=1`:
+`npm run test:fixed` with `REPRO_LOG_TIMER=1` (regenerates `fixed/focus-scope.mjs` first):
 
 ```
 [repro] focus-scope unmount timer fired: ok | scheduled@555 fired@562 | node globals (jsdom torn down)
@@ -145,4 +151,6 @@ that race goes.
   the Popover and DropdownMenu tests for ~11 s each and masked the race.
 - npm 10.9 fails this install with `Cannot read properties of null (reading 'edgesOut')`;
   `npx npm@12 install` works.
+- If you install with `--ignore-scripts`, run `npm run make-fixed` once before `test:fixed`
+  (the script does this itself anyway).
 - jsdom 24 has no `PointerEvent`, so the DropdownMenu test opens the menu with the keyboard.

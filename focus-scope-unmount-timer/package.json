@@ -7,10 +7,12 @@
   "scripts": {
     "test": "vitest run",
     "test:no-race": "REPRO_FORCE_RACE=0 vitest run",
-    "test:fixed": "REPRO_USE_FIX=1 vitest run",
+    "test:fixed": "node scripts/make-fixed.mjs && REPRO_USE_FIX=1 vitest run",
     "jsdom-mechanism": "node jsdom-mechanism.cjs",
     "test:workaround": "REPRO_WORKAROUND=1 REPRO_FORCE_RACE=0 vitest run",
-    "test:log": "REPRO_LOG_TIMER=1 vitest run"
+    "test:log": "REPRO_LOG_TIMER=1 vitest run",
+    "postinstall": "node scripts/make-fixed.mjs",
+    "make-fixed": "node scripts/make-fixed.mjs"
   },
   "devDependencies": {
     "@radix-ui/react-dialog": "1.1.23",
