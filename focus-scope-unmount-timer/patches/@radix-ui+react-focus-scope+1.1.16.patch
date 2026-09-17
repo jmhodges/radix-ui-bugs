@@ -1,0 +1,40 @@
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -91,12 +91,17 @@
+         }
+         return () => {
+           container.removeEventListener(AUTOFOCUS_ON_MOUNT, onMountAutoFocus);
++          // [fix] Capture the realm now. The timer below can fire after the environment that owned
++          // these globals is gone (e.g. a test runner tearing down jsdom), so it must not read
++          // `CustomEvent` or `document` from the global scope.
++          const ownerDocument = container.ownerDocument;
++          const UnmountEvent = CustomEvent;
+           setTimeout(() => {
+-            const unmountEvent = new CustomEvent(AUTOFOCUS_ON_UNMOUNT, EVENT_OPTIONS);
++            const unmountEvent = new UnmountEvent(AUTOFOCUS_ON_UNMOUNT, EVENT_OPTIONS);
+             container.addEventListener(AUTOFOCUS_ON_UNMOUNT, onUnmountAutoFocus);
+             container.dispatchEvent(unmountEvent);
+             if (!unmountEvent.defaultPrevented) {
+-              focus(previouslyFocusedElement ?? document.body, { select: true });
++              focus(previouslyFocusedElement ?? ownerDocument.body, { select: true });
+             }
+             container.removeEventListener(AUTOFOCUS_ON_UNMOUNT, onUnmountAutoFocus);
+             focusScopesStack.remove(focusScope);
+@@ -181,12 +186,15 @@
+ }
+ __name(isHidden, "isHidden");
+ function isSelectableInput(element) {
+-  return element instanceof HTMLInputElement && "select" in element;
++  // [fix] realm-independent check (no global `HTMLInputElement`)
++  return element?.tagName === "INPUT" && "select" in element;
+ }
+ __name(isSelectableInput, "isSelectableInput");
+ function focus(element, { select = false } = {}) {
+   if (element && element.focus) {
+-    const previouslyFocusedElement = document.activeElement;
++    // [fix] read activeElement from the element's own document, not the global one
++    const ownerDocument = "ownerDocument" in element ? element.ownerDocument : document;
++    const previouslyFocusedElement = ownerDocument.activeElement;
+     element.focus({ preventScroll: true });
+     if (element !== previouslyFocusedElement && isSelectableInput(element) && select)
+       element.select();
